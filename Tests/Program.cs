@@ -20,10 +20,10 @@ namespace Tests
                 var elapsedTimes = new Dictionary<string, double> { { "AsyncAwait", 0 }, { "ContinueWith", 0 }, { "ContinueWithArray", 0 }, { "ContinueWithFactory", 0 } };
 
                 // number of continious tasks to start
-                var startedContiniousTasksCount = 100;
+                var startedContiniousTasksCount = 1;
 
                 // number of times the continious tasks should be started
-                var iterations = 1000;
+                var iterations = 1;
 
                 // indicates whether information should be printed to console
                 var showMessages = false;
@@ -68,7 +68,7 @@ namespace Tests
                     try
                     {
                         sw.Start();
-                        testClass.ContinueWith(startedContiniousTasksCount);
+                        testClass.ContinueWith(startedContiniousTasksCount, true);
                     }
                     catch (Exception ex)
                     {
@@ -257,79 +257,89 @@ namespace Tests
             }
 
             /// <summary>
-            /// C
+            /// Starts a continious task containing 5 calculations with ContinueWith
             /// </summary>
-            /// <param name="withError"></param>
-            /// <param name="taskScheduler"></param>
-            /// <returns></returns>
+            /// <param name="withError">Indiciates whether an exception should be thrown in order to test exception handling.</param>
+            /// <returns>An async task.</returns>
             private Task ContinueWith(bool withError, TaskScheduler taskScheduler)
             {
                 Task task;
+                var cancelToken = new CancellationTokenSource();
 
                 if (withError)
                 {
-                    using var cancelToken = new CancellationTokenSource();
-
-                    task = Task.Run(() => DoSomeCalculations(6))
-                    .ContinueWith(_ => DoSomeCalculations(5), taskScheduler)
-                    .ContinueWith(_ => DoSomeCalculations(4), taskScheduler)
-                    .ContinueWith(_ => ThrowException(), taskScheduler)
+                    task = Task.Run(() => DoSomeCalculations(6), cancelToken.Token)
+                    .ContinueWith(_ => DoSomeCalculations(5), cancelToken.Token, TaskContinuationOptions.None, taskScheduler)
+                    .ContinueWith(_ => DoSomeCalculations(4), cancelToken.Token, TaskContinuationOptions.None, taskScheduler)
+                    .ContinueWith(_ => ThrowException(), cancelToken.Token, TaskContinuationOptions.None, taskScheduler)
                     .ContinueWith(t =>
                     {
                         if (t.IsFaulted)
                         {
-                            cancelToken.Cancel();
+                            // cancelToken.Cancel();
+                            ThrowException();
                         }
                         else
                         {
                             ThisShouldNotHappen();
                         }
-                    }, cancelToken.Token, TaskContinuationOptions.None, taskScheduler)
-                        .ContinueWith(t => ThisShouldNotHappen(), cancelToken.Token, TaskContinuationOptions.None, taskScheduler);
+                    }, cancelToken.Token, TaskContinuationOptions.None, taskScheduler);
+
+                    task.ContinueWith(t => ThisShouldNotHappen(), cancelToken.Token, TaskContinuationOptions.OnlyOnRanToCompletion, taskScheduler);
+                    task.ContinueWith(t => ActuallyShouldHappen(), cancelToken.Token, TaskContinuationOptions.OnlyOnFaulted, taskScheduler);
                 }
                 else
                 {
-                    task = Task.Run(() => DoSomeCalculations(6))
-                        .ContinueWith(_ => DoSomeCalculations(5), taskScheduler)
-                        .ContinueWith(_ => DoSomeCalculations(4), taskScheduler)
-                        .ContinueWith(_ => DoSomeCalculations(3), taskScheduler)
-                        .ContinueWith(_ => DoSomeCalculations(2), taskScheduler);
+                    task = Task.Run(() => DoSomeCalculations(6), cancelToken.Token)
+                        .ContinueWith(_ => DoSomeCalculations(5), cancelToken.Token, TaskContinuationOptions.None, taskScheduler)
+                        .ContinueWith(_ => DoSomeCalculations(4), cancelToken.Token, TaskContinuationOptions.None, taskScheduler)
+                        .ContinueWith(_ => DoSomeCalculations(3), cancelToken.Token, TaskContinuationOptions.None, taskScheduler)
+                        .ContinueWith(_ => DoSomeCalculations(2), cancelToken.Token, TaskContinuationOptions.None, taskScheduler);
                 }
-                try
-                {
-                    return task;
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine(ex);
-                    throw;
-                }
+
+                return task;
             }
 
+            /// <summary>
+            /// Starts a task array containing 5 calculations with ContinueWith
+            /// </summary>
+            /// <param name="withError">Indiciates whether an exception should be thrown in order to test exception handling.</param>
+            /// <returns>An async task.</returns>
             private Task ContinueWithArray(bool withError, TaskScheduler taskScheduler)
             {
-                var task = Task.Factory.StartNew(() => DoSomeCalculations(6));
-                var task2 = task.ContinueWith(_ => DoSomeCalculations(5), taskScheduler);
-                var task3 = task2.ContinueWith(_ => DoSomeCalculations(4), taskScheduler);
-                var task4 = task3.ContinueWith(_ => DoSomeCalculations(3), taskScheduler);
-                var task5 = task4.ContinueWith(_ => DoSomeCalculations(2, "ContinueWithArray"), taskScheduler);
+                var cancelationToken = new CancellationToken();
+
+                var task = Task.Factory.StartNew(() => DoSomeCalculations(6), cancelationToken, TaskCreationOptions.None, taskScheduler);
+                var task2 = task.ContinueWith(_ => DoSomeCalculations(5), cancelationToken, TaskContinuationOptions.None, taskScheduler);
+                var task3 = task2.ContinueWith(_ => DoSomeCalculations(4), cancelationToken, TaskContinuationOptions.None, taskScheduler);
+                var task4 = task3.ContinueWith(_ => DoSomeCalculations(3), cancelationToken, TaskContinuationOptions.None, taskScheduler);
+                var task5 = task4.ContinueWith(_ => DoSomeCalculations(2, "ContinueWithArray"), cancelationToken, TaskContinuationOptions.None, taskScheduler);
 
                 return Task.Factory.StartNew(() => { Task.WaitAll(new[] { task, task2, task3, task4, task5 }); });
             }
 
+            /// <summary>
+            /// Starts a continious task making 5 calculations with a task factory and ContinueWith
+            /// </summary>
+            /// <param name="withError">Indiciates whether an exception should be thrown in order to test exception handling.</param>
+            /// <returns>An async task.</returns>
             private Task ContinueWithFactory(bool withError, TaskScheduler taskScheduler)
             {
                 using var cancelToken = new CancellationTokenSource();
                 var task = Task.Factory.StartNew(() => DoSomeCalculations(6), cancelToken.Token, TaskCreationOptions.None, taskScheduler)
-                    .ContinueWith(_ => DoSomeCalculations(5), taskScheduler)
-                    .ContinueWith(_ => DoSomeCalculations(4), taskScheduler)
-                    .ContinueWith(_ => DoSomeCalculations(3), taskScheduler)
+                    .ContinueWith(_ => DoSomeCalculations(5), cancelToken.Token, TaskContinuationOptions.None, taskScheduler)
+                    .ContinueWith(_ => DoSomeCalculations(4), cancelToken.Token, TaskContinuationOptions.None, taskScheduler)
+                    .ContinueWith(_ => DoSomeCalculations(3), cancelToken.Token, TaskContinuationOptions.None, taskScheduler)
                     .ContinueWith(_ => DoSomeCalculations(2, "ContinueWithFactory"), taskScheduler);
 
                 return task;
             }
 
-
+            /// <summary>
+            /// Starts an async task making 5 calculations asynchronously with async/await
+            /// </summary>
+            /// <param name="withError">Indiciates whether an exception should be thrown in order to test exception handling.</param>
+            /// <returns>An async task.</returns>
             private async Task AsyncAwait(bool withError)
             {
                 try
